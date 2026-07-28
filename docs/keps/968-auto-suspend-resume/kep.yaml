@@ -1,0 +1,14 @@
+title: Auto Suspend/Resume for Sandboxes
+kep-number: 968
+authors:
+  - "@yuzhiquan"
+status: implementable
+creation-date: 2026-07-28
+reviewers:
+  - TBD
+approvers:
+  - TBD
+
+see-also:
+  - "/keps/694-kep-for-suspend-and-resume-for-beta"
+  - "/keps/119-sandbox-suspended-state"
