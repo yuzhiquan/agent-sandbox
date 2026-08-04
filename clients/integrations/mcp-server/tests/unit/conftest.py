@@ -16,12 +16,20 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastmcp.client import Client
+from fastmcp.server.dependencies import get_context
 
 from k8s_agent_sandbox_mcp_server.settings import (
     Settings,
     DirectConnectionConfig,
 )
 from k8s_agent_sandbox_mcp_server.server import create_mcp_server
+from k8s_agent_sandbox_mcp_server.utils import get_session_id_from_context
+
+
+# Sentinel for "label this claim for whichever session is asking", so the
+# default fixture exercises the allowed path without knowing the session id
+# that fastmcp assigns per connection.
+OWNED_BY_CALLER = object()
 
 @pytest.fixture
 def mcp_server_settings():
@@ -50,11 +58,32 @@ def mock_sandbox():
     return sandbox
 
 @pytest.fixture
-def mock_sandbox_client(mock_sandbox):
+def mock_sandbox_client(mock_sandbox, mcp_server_settings):
     client = AsyncMock()
     client.create_sandbox.return_value = mock_sandbox
     client.get_sandbox.return_value = mock_sandbox
     client.list_all_sandboxes.return_value = [mock_sandbox.claim_name]
+
+    # The ownership check reads the claim by name and compares its session
+    # label with the caller's session id. fastmcp assigns that id per
+    # connection, so the default claim is labelled from the live request
+    # context -- i.e. the calling session owns it. Tests that need a
+    # rejection replace get_sandbox_claim with a fixed claim or None
+    # (see test_session_ownership.py).
+    client.k8s_helper = MagicMock()
+    client.claim_labels = OWNED_BY_CALLER
+
+    async def get_sandbox_claim(name, namespace):
+        labels = client.claim_labels
+        if labels is OWNED_BY_CALLER:
+            labels = {
+                mcp_server_settings.session_id_label_key: get_session_id_from_context(
+                    get_context()
+                )
+            }
+        return {"metadata": {"name": name, "labels": labels}}
+
+    client.k8s_helper.get_sandbox_claim = AsyncMock(side_effect=get_sandbox_claim)
     return client
     
 @pytest.fixture

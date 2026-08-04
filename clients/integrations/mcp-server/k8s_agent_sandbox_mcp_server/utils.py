@@ -27,15 +27,28 @@ async def ensure_session_owns(
     namespace: str,
 ):
     client: AsyncSandboxClient = ctx.lifespan_context["client"]
+    settings: Settings = ctx.lifespan_context["settings"]
 
-    # TODO: Get labels directly from the sandbox when it is in SDK.
-    label_selector = get_session_label_selector_from_context(ctx)
-    found = set(await client.list_all_sandboxes(
-        namespace=namespace,
-        label_selector=label_selector,
-    ))
+    # Read the one claim by name: the GET returns metadata.labels, which is
+    # where create_sandbox stamps the session id, so the ownership check
+    # needs a single request rather than a LIST of every claim in the
+    # namespace on every tool call.
+    claim = await client.k8s_helper.get_sandbox_claim(sandbox_claim_name, namespace)
 
-    if sandbox_claim_name not in found:
+    # Raises when the transport supplies no session id, so an absent label
+    # can never be compared equal to an absent session.
+    session_id = get_session_id_from_context(ctx)
+
+    # get_sandbox_claim returns None for a missing claim, and a claim with no
+    # labels yields None for metadata.labels, so both collapse to {} here and
+    # fall through to the same rejection below.
+    labels = (claim or {}).get("metadata", {}).get("labels") or {}
+
+    # One comparison covers every failure mode -- claim absent, label absent,
+    # or label belonging to another session -- and they all raise the same
+    # message. A caller must not be able to tell "someone else owns this"
+    # from "this does not exist".
+    if labels.get(settings.session_id_label_key) != session_id:
         raise RuntimeError(f"Sandbox claim '{sandbox_claim_name}' is not found in namespace '{namespace}'.")
 
 

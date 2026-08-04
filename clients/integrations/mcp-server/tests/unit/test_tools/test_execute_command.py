@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from unittest.mock import AsyncMock
+
 import pytest
 from k8s_agent_sandbox.models import ExecutionResult
 from fastmcp.exceptions import ToolError
@@ -107,7 +109,9 @@ async def test_session_id_not_found(
     mcp_client,
     mock_sandbox_client,
 ):
-    mock_sandbox_client.list_all_sandboxes.return_value = []
+    # A claim the caller's session does not own is indistinguishable from
+    # a claim that does not exist: get_sandbox_claim returns None on 404.
+    mock_sandbox_client.k8s_helper.get_sandbox_claim = AsyncMock(return_value=None)
 
     with pytest.raises(ToolError, match="claim 'my-claim' is not found"):
         await mcp_client.call_tool(
